@@ -11,7 +11,7 @@ who = np.concatenate((np.ones((hs, xs)), np.zeros((hs, hs))), axis=1)
 
 y_assumed = np.array([10, 14, 3, -13])
 error = 100
-while error > 1:
+while error != 0.:
 	h = a * g.reshape((hs, 1))
 	print(h.shape, x.shape)
 	ht = np.concatenate((x, h), axis=0).reshape((xs+hs, 1))

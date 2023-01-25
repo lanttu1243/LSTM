@@ -236,7 +236,7 @@ class LSTM_layer:
 
 		self.Wy -= self.learning_rate * self.dWy
 		self.By -= self.learning_rate * self.dBy
-		
+
 	def loss(self, targets: list[int]) -> float:
 		# Calculate Loss
 		loss = 0
@@ -362,7 +362,7 @@ class LSTM:
 					dh = layer.backpropagation_LSTM_layer(dh)
 			# Update parameters
 			for layer in self.layers:
-				layer.adagrad()
+				layer.SGD()
 			# Print out the sample and the details
 			if n % 500 == 0:
 				print(self.details(n), "\n")
