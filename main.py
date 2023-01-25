@@ -2,8 +2,8 @@ import LSTM as rnn
 
 
 def main():
-	data = open(r"C:\Users\lasse\PycharmProjects\RNN\TrainingData.txt", "r", encoding="utf-8").read()
-	network = rnn.LSTM([16, 32, 16], 5, 1e-4, data)
+	data = open(r"inputs.txt", "r", encoding="utf-8").read()
+	network = rnn.LSTM([8, 6], 20, 1e-2, data)
 	network.train()
 
 if __name__ == "__main__":
