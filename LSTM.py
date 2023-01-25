@@ -21,7 +21,6 @@ class LSTM_layer:
 		self.og: dict[int, np.ndarray] = {}    # Forget gate
 		self.mg: dict[int, np.ndarray] = {}    # Forget gate
 		self.cs: dict[int, np.ndarray] = {}    # Forget gate
-		self.ch: dict[int, np.ndarray] = {}    # Forget gate
 		self.ys: dict[int, np.ndarray] = {}    # Output
 		self.ps: dict[int, np.ndarray] = {}    # Probabilities
 		self.conc: dict[int, np.ndarray] = {}  # the concatenation of xs(t) and hs(t-1)
@@ -82,7 +81,7 @@ class LSTM_layer:
 
 	@staticmethod
 	def sigmoid(x: np.ndarray) -> np.ndarray:
-		return 1 / (1 + np.exp(- x))
+		return 1 / (1 + np.exp(- np.clip(x, -10, 10)))
 
 	@staticmethod
 	def sigmoid_derivative(x: np.ndarray) -> np.ndarray:
@@ -90,11 +89,11 @@ class LSTM_layer:
 
 	@staticmethod
 	def tanh_derivative(x: np.ndarray) -> np.ndarray:
-		return 1 - x ** 2
+		return 1 - x * x
 
 	def initialise_Layer(self) -> None:
 		# initialise the parameters for the iteration to empty or zero
-		self.xs, self.hs, self.fg, self.ig, self.og, self.mg, self.cs, self.ch = {}, {}, {}, {}, {}, {}, {}, {}
+		self.xs, self.hs, self.fg, self.ig, self.og, self.mg, self.cs = {}, {}, {}, {}, {}, {}, {}
 		self.ys, self.ps = {}, {}
 		self.conc = {}
 
@@ -121,8 +120,7 @@ class LSTM_layer:
 			self.mg[t] = np.tanh(self.Wm @ self.conc[t] + self.Bm)
 
 			self.cs[t] = self.fg[t] * self.cs[t - 1] + self.ig[t] * self.mg[t]
-			self.ch[t] = np.tanh(self.cs[t])
-			self.hs[t] = self.og[t] * self.ch[t]
+			self.hs[t] = self.og[t] * self.cs[t]
 		return self.hs
 
 	def output_layer(self) -> dict[int, np.ndarray]:
@@ -130,7 +128,7 @@ class LSTM_layer:
 		hid.pop(-1)
 		for t, k in enumerate(hid):
 			self.ys[t] = self.Wy @ self.hs[t-1] + self.By
-			self.ps[t] = np.exp(self.ys[t] - np.max(self.ys[t])) / np.sum(np.exp(self.ys[t] - np.max(self.ys[t])))
+			self.ps[t] = np.exp(self.ys[t]) / np.sum(np.exp(self.ys[t]))
 		return self.ps
 
 	def backpropagation_output_layer(self, targets: list[int]) -> dict[int, np.ndarray]:
@@ -148,67 +146,57 @@ class LSTM_layer:
 
 		return dout
 
-	def backpropagation_LSTM_layer(self, din: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+	def backpropagation_LSTM_layer(self, dh: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
 
 		dcnext: np.ndarray = np.zeros((self.hidden_size, 1))
-		dfnext: np.ndarray = np.zeros((self.hidden_size, 1))
-		dinext: np.ndarray = np.zeros((self.hidden_size, 1))
-		donext: np.ndarray = np.zeros((self.hidden_size, 1))
-		dmnext: np.ndarray = np.zeros((self.hidden_size, 1))
 
-		dout: dict[int, np.ndarray] = {}
-
-		for t in reversed(range(len(din))):
-			dinh = din[t] * self.og[t]
-			dhc = dinh * self.tanh_derivative(self.ch[t]) + dcnext
-			dcnext += dhc * self.fg[t]
-
-			dcf = dhc * self.cs[t - 1] + dfnext
-			dfraw = dcf * self.sigmoid_derivative(self.fg[t])
+		dx: dict[int, np.ndarray] = {}
+		for t in reversed(range(len(dh))):
+			# Backpropagation through the gates
+			dhc = self.og[t] * dh[t] + dcnext
+			dho = dh[t] * self.cs[t]
+			dcf = dhc * self.cs[t - 1]
+			dci = dhc * self.mg[t]
+			dcm = dhc * self.ig[t]
+			# Backpropagation through the activation functions
+			doraw = self.sigmoid_derivative(self.og[t]) * dho
+			dfraw = self.sigmoid_derivative(self.fg[t]) * dcf
+			diraw = self.sigmoid_derivative(self.ig[t]) * dci
+			dmraw = self.tanh_derivative(self.mg[t]) * dcm
+			# Calculate bias derivatives
 			self.dBf += dfraw
-			self.dWf += dfraw @ self.conc[t].T
-			dfout = self.Wf[:, :self.input_size].T @ dfraw
-			dfnext += self.Wf[:, self.input_size:].T @ dfraw
-
-			dci = dhc * self.mg[t] + dinext
-			diraw = dci * self.sigmoid_derivative(self.ig[t])
 			self.dBi += diraw
-			self.dWi += diraw @ self.conc[t].T
-			diout = self.Wi[:, :self.input_size].T @ diraw
-			dinext += self.Wi[:, self.input_size:].T @ diraw
-
-			dino = din[t] * self.ch[t] + donext
-			doraw = dino * self.sigmoid_derivative(self.og[t])
-			self.dBo += doraw
-			self.dWo += doraw @ self.conc[t].T
-			doout = self.Wo[:, :self.input_size].T @ doraw
-			donext += self.Wo[:, self.input_size:].T @ doraw
-
-			dcm = dhc * self.ig[t] + dmnext
-			dmraw = dcm * self.tanh_derivative(self.mg[t])
 			self.dBm += dmraw
+			self.dBo += doraw
+			# Calculate weight derivatives
+			self.dWi += diraw @ self.conc[t].T
+			self.dWf += dfraw @ self.conc[t].T
+			self.dWo += doraw @ self.conc[t].T
 			self.dWm += dmraw @ self.conc[t].T
-			dmout = self.Wm[:, :self.input_size].T @ dmraw
-			dmnext += self.Wm[:, self.input_size:].T @ dmraw
+			# Calculate through the layer dh/dx
+			dout = np.zeros((self.hidden_size + self.input_size, 1))
+			dout += self.Wf.T @ dfraw
+			dout += self.Wi.T @ diraw
+			dout += self.Wo.T @ doraw
+			dout += self.Wm.T @ dmraw
 
-			dout[t] = dfout + diout + dmout + doout
-		for i in [self.dWf, self.dWi, self.dWo, self.dWm, self.dBf, self.dBi, self.dBo, self.dBm, self.dWy, self.dBy]:
-			np.clip(i, -1, 1, out=i)
-		return dout
+			dx[t] = dout[:self.input_size]
+			dcnext += dhc * self.fg[t]
+		return dx
 
 	def adagrad(self) -> None:
-		self.mWf = np.square(self.dWf)
-		self.mWi = np.square(self.dWi)
-		self.mWo = np.square(self.dWo)
-		self.mWm = np.square(self.dWm)
+		self.mWf += np.square(self.dWf)
+		self.mWi += np.square(self.dWi)
+		self.mWo += np.square(self.dWo)
+		self.mWm += np.square(self.dWm)
 
-		self.mBf = np.square(self.dBf)
-		self.mBi = np.square(self.dBi)
-		self.mBo = np.square(self.dBo)
-		self.mBm = np.square(self.dBm)
+		self.mBf += np.square(self.dBf)
+		self.mBi += np.square(self.dBi)
+		self.mBo += np.square(self.dBo)
+		self.mBm += np.square(self.dBm)
 
-		self.mWy = np.square(self.dWy)
-		self.mBy = np.square(self.dBy)
+		self.mWy += np.square(self.dWy)
+		self.mBy += np.square(self.dBy)
 
 		self.Wf -= (self.learning_rate / np.sqrt(np.diagonal(self.mWf).copy() + 1e-8)) @ self.dWf
 		self.Wi -= (self.learning_rate / np.sqrt(np.diagonal(self.mWi).copy() + 1e-8)) @ self.dWi
@@ -241,8 +229,8 @@ class LSTM_layer:
 		# Calculate Loss
 		loss = 0
 		for t in range(len(targets)):
-			loss += - np.log(np.clip(self.ps[t][targets[t]], 1e-9, 1 - 1e-9))
-		self.smooth_loss = 0.99 * self.smooth_loss + 0.01 * loss
+			loss += - np.log(self.ps[t][targets[t], 0])
+		self.smooth_loss = 0.999 * self.smooth_loss + 0.001 * loss
 		return self.smooth_loss
 
 	def sample__input(self, x0: int) -> np.ndarray:
