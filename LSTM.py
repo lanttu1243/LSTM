@@ -17,13 +17,13 @@ class LSTM_layer:
 		self.xs: dict[int, np.ndarray] = {}    # Input
 		self.hs: dict[int, np.ndarray] = {}    # Hidden state
 		self.fg: dict[int, np.ndarray] = {}    # Forget gate
-		self.ig: dict[int, np.ndarray] = {}    # Forget gate
-		self.og: dict[int, np.ndarray] = {}    # Forget gate
-		self.mg: dict[int, np.ndarray] = {}    # Forget gate
-		self.cs: dict[int, np.ndarray] = {}    # Forget gate
+		self.ig: dict[int, np.ndarray] = {}    # Input gate
+		self.og: dict[int, np.ndarray] = {}    # Output gate
+		self.mg: dict[int, np.ndarray] = {}    # Memory gate
+		self.cs: dict[int, np.ndarray] = {}    # Cell gate
 		self.ys: dict[int, np.ndarray] = {}    # Output
-		self.ps: dict[int, np.ndarray] = {}    # Probabilities
-		self.conc: dict[int, np.ndarray] = {}  # the concatenation of xs(t) and hs(t-1)
+		self.ps: dict[int, np.ndarray] = {}    # Probability vector
+		self.conc: dict[int, np.ndarray] = {}  # Concatenation of xs[t] and hs[t-1]
 
 		# Initialize weights and biases for the lstm unit
 		self.Wf: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.001
@@ -121,6 +121,7 @@ class LSTM_layer:
 
 			self.cs[t] = self.fg[t] * self.cs[t - 1] + self.ig[t] * self.mg[t]
 			self.hs[t] = self.og[t] * self.cs[t]
+		self.prev_hidden = self.hs[len(self.xs) - 1]
 		return self.hs
 
 	def output_layer(self) -> dict[int, np.ndarray]:
@@ -229,7 +230,7 @@ class LSTM_layer:
 		# Calculate Loss
 		loss = 0
 		for t in range(len(targets)):
-			loss += - np.log(self.ps[t][targets[t], 0])
+			loss += - np.log(self.ps[t][targets[t]] + 1e-5)
 		self.smooth_loss = 0.999 * self.smooth_loss + 0.001 * loss
 		return self.smooth_loss
 
@@ -388,7 +389,7 @@ class LSTM:
 					txt += "[/linebreak]"
 				else:
 					txt += char
-		return text
+		return txt
 
 	def details(self, n):
 		print(f"n: {n}, loss: {self.loss[-1]}, timestep sample: [{self.sample(30)}]")
