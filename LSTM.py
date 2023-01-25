@@ -156,11 +156,6 @@ class LSTM_layer:
 		donext: np.ndarray = np.zeros((self.hidden_size, 1))
 		dmnext: np.ndarray = np.zeros((self.hidden_size, 1))
 
-		dfout = np.zeros((self.input_size, 1))
-		diout = np.zeros((self.input_size, 1))
-		dmout = np.zeros((self.input_size, 1))
-		doout = np.zeros((self.input_size, 1))
-
 		dout: dict[int, np.ndarray] = {}
 
 		for t in reversed(range(len(din))):
@@ -228,6 +223,20 @@ class LSTM_layer:
 		self.Wy -= (self.learning_rate / np.sqrt(np.diagonal(self.mWy).copy() + 1e-8)) @ self.dWy
 		self.By -= (self.learning_rate / np.sqrt(self.mBy + 1e-8)) * self.dBy
 
+	def SGD(self) -> None:
+		self.Wf -= self.learning_rate * self.dWf
+		self.Wi -= self.learning_rate * self.dWi
+		self.Wo -= self.learning_rate * self.dWo
+		self.Wm -= self.learning_rate * self.dWm
+
+		self.Bf -= self.learning_rate * self.dBf
+		self.Bi -= self.learning_rate * self.dBi
+		self.Bo -= self.learning_rate * self.dBo
+		self.Bm -= self.learning_rate * self.dBm
+
+		self.Wy -= self.learning_rate * self.dWy
+		self.By -= self.learning_rate * self.dBy
+		
 	def loss(self, targets: list[int]) -> float:
 		# Calculate Loss
 		loss = 0
