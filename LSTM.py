@@ -67,7 +67,21 @@ class LSTM_layer:
 
 		self.mWy: np.ndarray = np.zeros_like(self.Wy)
 		self.mBy: np.ndarray = np.zeros_like(self.By)
+		
+		# define variables for derivative checking
+		self.cWf: np.ndarray = np.zeros_like(self.Wf)
+		self.cWi: np.ndarray = np.zeros_like(self.Wi)
+		self.cWo: np.ndarray = np.zeros_like(self.Wo)
+		self.cWm: np.ndarray = np.zeros_like(self.Wm)
 
+		self.cBf: np.ndarray = np.zeros_like(self.Bf)
+		self.cBi: np.ndarray = np.zeros_like(self.Bi)
+		self.cBo: np.ndarray = np.zeros_like(self.Bo)
+		self.cBm: np.ndarray = np.zeros_like(self.Bm)
+
+		self.cWy: np.ndarray = np.zeros_like(self.Wy)
+		self.cBy: np.ndarray = np.zeros_like(self.By)
+		
 		self.prev_hidden: np.ndarray = np.zeros((self.hidden_size, 1))
 		self.prev_cell: np.ndarray = np.zeros((self.hidden_size, 1))
 
@@ -81,7 +95,7 @@ class LSTM_layer:
 
 	@staticmethod
 	def sigmoid(x: np.ndarray) -> np.ndarray:
-		return 1 / (1 + np.exp(- np.clip(x, -10, 10)))
+		return 1 / (1 + np.exp(- x))
 
 	@staticmethod
 	def sigmoid_derivative(x: np.ndarray) -> np.ndarray:
@@ -128,8 +142,9 @@ class LSTM_layer:
 		hid: dict[int, np.ndarray] = self.forward_pass().copy()
 		hid.pop(-1)
 		for t, k in enumerate(hid):
-			self.ys[t] = self.Wy @ self.hs[t-1] + self.By
-			self.ps[t] = np.exp(self.ys[t]) / np.sum(np.exp(self.ys[t]))
+			self.ys[t] = self.Wy @ self.hs[t] + self.By
+			yt = self.ys[t] - np.max(self.ys[t])
+			self.ps[t] = np.exp(yt) / np.sum(np.exp(yt))
 		return self.ps
 
 	def backpropagation_output_layer(self, targets: list[int]) -> dict[int, np.ndarray]:
@@ -154,7 +169,7 @@ class LSTM_layer:
 		dx: dict[int, np.ndarray] = {}
 		for t in reversed(range(len(dh))):
 			# Backpropagation through the gates
-			dhc = self.og[t] * dh[t] + dcnext
+			dhc = (dh[t] + dcnext) * self.og[t]
 			dho = dh[t] * self.cs[t]
 			dcf = dhc * self.cs[t - 1]
 			dci = dhc * self.mg[t]
@@ -234,6 +249,102 @@ class LSTM_layer:
 		self.smooth_loss = 0.999 * self.smooth_loss + 0.001 * loss
 		return self.smooth_loss
 
+	def forward_check(self, wf, wi, wo, wm, bf, bi, bo, bm) -> dict[int, np.ndarray]:
+		hs, cs, fg, ig, og, mg, cs,  = {}, {}, {}, {}, {}, {}, {}
+		# Initialise h_t-1 and c_t-1 to zero-arrays
+		hs[-1] = self.prev_hidden
+		cs[-1] = self.prev_cell
+		# forward pass with one variable slightly changed
+		for t, k in enumerate(self.xs):
+			# No need to initialise self.conc as it exists from forward pass
+			fg[t] = self.sigmoid(wf @ self.conc[t] + bf)
+			ig[t] = self.sigmoid(wi @ self.conc[t] + bi)
+			og[t] = self.sigmoid(wo @ self.conc[t] + bo)
+			mg[t] = np.tanh(wm @ self.conc[t] + bm)
+
+			cs[t] = fg[t] * cs[t - 1] + ig[t] * mg[t]
+			hs[t] = og[t] * cs[t]
+		return hs.pop(-1)
+
+	def output_check(self, wy, by):
+		hid: dict[int, np.ndarray] = self.forward_pass().copy()
+		ys, hs, ps = {}, {}, {}
+		hid.pop(-1)
+		for t, k in enumerate(hid):
+			ys[t] = wy @ self.hs[t] + by
+			yt = ys[t] - np.max(ys[t])
+			ps[t] = np.exp(yt) / np.sum(np.exp(yt))
+		return ps
+
+	def grad_check(self) -> float:
+		# Function for calculating the hidden states to check the derivatives
+		def h(variable: str = "default", dx=1e-6):
+			match variable.lower():
+				case "wf":
+					return self.forward_check(wf=self.Wf + dx, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+											  bo=self.Bo, bm=self.Bm)
+				case "wi":
+					return self.forward_check(wf=self.Wf, wi=self.Wi + dx, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm)
+				case "wo":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo + dx, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm)
+				case "wm":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm + dx, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm)
+				case "bf":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf + dx, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm)
+				case "bi":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi + dx,
+									  bo=self.Bo, bm=self.Bm)
+				case "bo":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo + dx, bm=self.Bm)
+				case "bm":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm + dx)
+				case "default":
+					return self.forward_check(wf=self.Wf, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf, bi=self.Bi,
+									  bo=self.Bo, bm=self.Bm)
+
+		dx = 1e-7
+		if self.output_size != 0:
+			for i, j, k in zip(self.output_check(self.Wy + dx, self.By), self.output_check(self.Wy, self.By + dx), self.output_check(self.Wy, self.By)):
+				self.cWy += (i - k) / dx
+				self.cBy += (j - k) / dx
+
+		for t, j in enumerate(h(dx=dx)):
+			self.cWf += (h("wf", dx=dx)[t] - j) / dx
+			self.cWi += (h("wi", dx=dx)[t] - j) / dx
+			self.cWo += (h("wo", dx=dx)[t] - j) / dx
+			self.cWm += (h("wm", dx=dx)[t] - j) / dx
+			self.cBf += (h("bf", dx=dx)[t] - j) / dx
+			self.cBi += (h("bi", dx=dx)[t] - j) / dx
+			self.cBo += (h("bo", dx=dx)[t] - j) / dx
+			self.cBm += (h("bm", dx=dx)[t] - j) / dx
+		dcwf = np.average(np.absolute(self.cWf - self.dWf))
+		dcwi = np.average(np.absolute(self.cWi - self.dWi))
+		dcwo = np.average(np.absolute(self.cWo - self.dWo))
+		dcwm = np.average(np.absolute(self.cWm - self.dWm))
+		dcbf = np.average(np.absolute(self.cBf - self.dBf))
+		dcbi = np.average(np.absolute(self.cBi - self.dBi))
+		dcbo = np.average(np.absolute(self.cBo - self.dBo))
+		dcbm = np.average(np.absolute(self.cBm - self.dBm))
+		print(f"Layer: {self.number}, Wf-error: {dcwf:.2e}")
+		print(f"Layer: {self.number}, Wi-error: {dcwi:.2e}")
+		print(f"Layer: {self.number}, Wo-error: {dcwo:.2e}")
+		print(f"Layer: {self.number}, Wm-error: {dcwm:.2e}")
+		print(f"Layer: {self.number}, Bf-error: {dcbf:.2e}")
+		print(f"Layer: {self.number}, Bi-error: {dcbi:.2e}")
+		print(f"Layer: {self.number}, Bo-error: {dcbo:.2e}")
+		print(f"Layer: {self.number}, Bm-error: {dcbm:.2e}")
+		sum_diff = dcwf + dcwi + dcwo + dcwm + dcbf + dcbi + dcbo + dcbm
+		if self.output_size != 0:
+			print(f"Output Wy-error: {np.average(np.absolute(self.cWy - self.dWy)):.2e}")
+			print(f"Output By-error: {np.average(np.absolute(self.cBy - self.dBy)):.2e}")
+		return sum_diff
+
 	def sample__input(self, x0: int) -> np.ndarray:
 		x = np.zeros((self.input_size, 1))
 		x[x0] = 1
@@ -246,11 +357,12 @@ class LSTM_layer:
 		o = np.tanh(self.Wo @ x + self.Bo)
 		m = self.sigmoid(self.Wm @ x + self.Bm)
 		c = f * c + i * m
-		h = o * np.tanh(c)
+		h = o * c
 		return h, c
 
 	def sample_out(self, h: np.ndarray) -> int:
 		y = self.Wy @ h + self.By
+		y = y - np.max(y)
 		p = (np.exp(y) / np.sum(np.exp(y))).ravel()
 		try:
 			ix = int(np.random.choice(range(self.output_size), size=1, p=p))
@@ -349,18 +461,24 @@ class LSTM:
 					dh = layer.backpropagation_LSTM_layer(dy)
 				else:
 					dh = layer.backpropagation_LSTM_layer(dh)
+			if n % 1000 == 0:
+				for layer in self.layers:
+					layer.grad_check()
 			# Update parameters
 			for layer in self.layers:
 				layer.SGD()
 			# Print out the sample and the details
-			if n % 500 == 0:
+			if n % 50 == 0:
 				print(self.details(n), "\n")
 				plt.plot(self.loss)
 				plt.savefig("lossLSTM.png")
 				plt.close()
 
-			if n % 1000 == 0:
+			if n % 100 == 0:
 				print(f"Sample: \n[{self.sample(100)}]\n")
+
+			if n % 1000 == 0:
+				print(self.sample(1000))
 			# Increment n and p at the end of the iteration
 			n += 1
 			p += self.sequence_length
@@ -371,6 +489,7 @@ class LSTM:
 		x = self.layers[0].sample__input(rand_x)
 		chars = [int(rand_x)]
 		text = "".join(self.ix_to_char[chars[0]])
+		txt = ""
 		hiddens = [np.zeros((i.hidden_size, 1)) for i in self.layers]
 		cells = [np.zeros((i.hidden_size, 1)) for i in self.layers]
 		for n in range(size):
