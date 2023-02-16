@@ -1,4 +1,3 @@
 lossLSTM.png
-test.py
-lossTest.png
 input.txt
+requirements.txt
