@@ -2,9 +2,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-class LSTM_layer:
+class LSTMLayer:
 
-    def __init__(self, layer_number: int, input_size: int, hidden_size: int, learning_rate: float,
+    def __init__(self,
+                 layer_number: int,
+                 input_size: int,
+                 hidden_size: int,
+                 learning_rate: float,
                  output_size: int = 0):
         # Initialising the static parameters for the layer
         self.hidden_size: int = hidden_size  # Hidden size is the number of neurons in a layer
@@ -12,8 +16,9 @@ class LSTM_layer:
         self.learning_rate: float = learning_rate  # Learning rate tells the model how quickly to adjust parameters
         self.smooth_loss: float = 0  # Initialising the loss to zero
         self.number: int = layer_number  # The number of the layer in the network
-        self.output_size: int = output_size  # If the layer is the last layer this tells the size of the output often the same as the input for the first layer
-
+        # If the layer is the last layer this tells the size of
+        # the output often the same as the input for the first layer
+        self.output_size: int = output_size
         # define the variables used in the layer
         self.xs: dict[int, np.ndarray] = {}  # Input
         self.hs: dict[int, np.ndarray] = {}  # Hidden state
@@ -27,10 +32,10 @@ class LSTM_layer:
         self.conc: dict[int, np.ndarray] = {}  # Concatenation of xs[t] and hs[t-1]
 
         # Initialize weights and biases for the lstm unit
-        self.Wf: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.001
-        self.Wi: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.001
-        self.Wo: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.001
-        self.Wm: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.001
+        self.Wf: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.0001
+        self.Wi: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.0001
+        self.Wo: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.0001
+        self.Wm: np.ndarray = np.random.randn(self.hidden_size, self.hidden_size + self.input_size) * 0.0001
 
         self.Bf: np.ndarray = np.zeros((self.hidden_size, 1))
         self.Bi: np.ndarray = np.zeros((self.hidden_size, 1))
@@ -92,11 +97,12 @@ class LSTM_layer:
             out_size = self.output_size
         else:
             out_size = self.hidden_size
-        return f"LSTM(Layer no. {self.number}, input size: {self.input_size}, hidden size: {self.hidden_size}, output size: {out_size})"
+        return f"LSTM(Layer no. {self.number}, input size: {self.input_size}," \
+               f"hidden size: {self.hidden_size}, output size: {out_size})"
 
     @staticmethod
     def sigmoid(x: np.ndarray) -> np.ndarray:
-        return 1 / (1 + np.exp(- x))
+        return 1 / (1 + np.exp(- x, dtype="float64"))
 
     @staticmethod
     def sigmoid_derivative(x: np.ndarray) -> np.ndarray:
@@ -106,7 +112,7 @@ class LSTM_layer:
     def tanh_derivative(x: np.ndarray) -> np.ndarray:
         return 1 - x * x
 
-    def initialise_Layer(self) -> None:
+    def initialise_layer(self) -> None:
         # initialise the parameters for the iteration to empty or zero
         self.xs, self.hs, self.fg, self.ig, self.og, self.mg, self.cs = {}, {}, {}, {}, {}, {}, {}
         self.ys, self.ps = {}, {}
@@ -163,42 +169,43 @@ class LSTM_layer:
 
         return dout
 
-    def backpropagation_LSTM_layer(self, dh: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+    def backpropagation_lstm_layer(self, dh: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
 
         dcnext: np.ndarray = np.zeros((self.hidden_size, 1))
-
         dx: dict[int, np.ndarray] = {}
         for t in reversed(range(len(dh))):
-            # Backpropagation through the gates
-            dhc = (dh[t] + dcnext) * self.og[t]
-            dho = dh[t] * self.cs[t]
-            dcf = dhc * self.cs[t - 1]
-            dci = dhc * self.mg[t]
-            dcm = dhc * self.ig[t]
-            # Backpropagation through the activation functions
-            doraw = self.sigmoid_derivative(self.og[t]) * dho
-            dfraw = self.sigmoid_derivative(self.fg[t]) * dcf
-            diraw = self.sigmoid_derivative(self.ig[t]) * dci
-            dmraw = self.tanh_derivative(self.mg[t]) * dcm
-            # Calculate bias derivatives
-            self.dBf += dfraw
-            self.dBi += diraw
-            self.dBm += dmraw
-            self.dBo += doraw
-            # Calculate weight derivatives
-            self.dWi += diraw @ self.conc[t].T
-            self.dWf += dfraw @ self.conc[t].T
-            self.dWo += doraw @ self.conc[t].T
-            self.dWm += dmraw @ self.conc[t].T
-            # Calculate through the layer dh/dx
-            dout = np.zeros((self.hidden_size + self.input_size, 1))
-            dout += self.Wf.T @ dfraw
-            dout += self.Wi.T @ diraw
-            dout += self.Wo.T @ doraw
-            dout += self.Wm.T @ dmraw
 
-            dx[t] = dout[:self.input_size]
-            dcnext += dhc * self.fg[t]
+            dout_dh = dh[t]
+            dh_dct = dout_dh * self.og[t] + dcnext
+            dh_do = self.cs[t]
+
+            dct_dct_1 = dh_dct * self.fg[t]
+            dct_df = dh_dct * self.cs[t-1]
+            dct_di = dh_dct * self.mg[t]
+            dct_dm = dh_dct * self.ig[t]
+
+            df_dzf = dct_df * (self.fg[t] * (1 - self.fg[t]))
+            self.dWf += df_dzf @ self.conc[t].T
+            self.dBf += df_dzf
+            dzf_dx = self.Wf.T @ df_dzf
+
+            di_dzi = dct_di * (self.ig[t] * (1 - self.ig[t]))
+            self.dWi += di_dzi @ self.conc[t].T
+            self.dBi += di_dzi
+            dzi_dx = self.Wi.T @ di_dzi
+
+            dm_dzm = dct_dm * (1 - np.square(self.mg[t]))
+            self.dWm += dm_dzm @ self.conc[t].T
+            self.Bm += dm_dzm
+            dzm_dx = self.Wm.T @ dm_dzm
+
+            do_dzo = dh_do * (self.og[t] * (1 - self.og[t]))
+            self.dWo += do_dzo @ self.conc[t].T
+            self.Bo += do_dzo
+            dzo_dx = self.Wo.T @ do_dzo
+
+            dx[t] = (dzo_dx + dzm_dx + dzf_dx + dzi_dx)[:self.input_size, :]
+
         return dx
 
     def adagrad(self) -> None:
@@ -228,7 +235,7 @@ class LSTM_layer:
         self.Wy -= (self.learning_rate / np.sqrt(np.diagonal(self.mWy).copy() + 1e-8)) @ self.dWy
         self.By -= (self.learning_rate / np.sqrt(self.mBy + 1e-8)) * self.dBy
 
-    def SGD(self) -> None:
+    def sgd(self) -> None:
         self.Wf -= self.learning_rate * self.dWf
         self.Wi -= self.learning_rate * self.dWi
         self.Wo -= self.learning_rate * self.dWo
@@ -271,6 +278,7 @@ class LSTM_layer:
         hid: dict[int, np.ndarray] = self.forward_pass().copy()
         ys, hs, ps = {}, {}, {}
         hid.pop(-1)
+        hs = hid
         for t, k in enumerate(hid):
             ys[t] = wy @ self.hs[t] + by
             yt = ys[t] - np.max(ys[t])
@@ -279,7 +287,7 @@ class LSTM_layer:
 
     def grad_check(self) -> float:
         # Function for calculating the hidden states to check the derivatives
-        def h(variable: str = "default", d=1e-6):
+        def h(variable: str = "default", d=1e-20):
             match variable.lower():
                 case "wf":
                     return self.forward_check(wf=self.Wf + d, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf,
@@ -353,7 +361,7 @@ class LSTM_layer:
         x[x0] = 1
         return x
 
-    def sample_LSTM(self, x: np.ndarray, h_prev: np.ndarray, c: np.ndarray) -> (np.ndarray, np.ndarray):
+    def sample_lstm(self, x: np.ndarray, h_prev: np.ndarray, c: np.ndarray) -> (np.ndarray, np.ndarray):
         x = np.concatenate((x, h_prev), axis=0)
         f = self.sigmoid(self.Wf @ x + self.Bf)
         i = self.sigmoid(self.Wi @ x + self.Bi)
@@ -407,14 +415,14 @@ class LSTM:
         for layer, size in enumerate(self.layer_sizes):
             if layer == 0:
                 # First layer parameters: Vocab size and hidden size
-                self.layers.append(LSTM_layer(layer, self.dict_size, size, self.learning_rate))
+                self.layers.append(LSTMLayer(layer, self.dict_size, size, self.learning_rate))
             elif layer == len(layer_sizes) - 1:
                 # Last layer previous hidden size and output is the vocab size
-                self.layers.append(LSTM_layer(layer, prev_size, size, self.learning_rate, output_size=self.dict_size))
+                self.layers.append(LSTMLayer(layer, prev_size, size, self.learning_rate, output_size=self.dict_size))
                 prev_size = size
             else:
                 # Initialising the rest of the layers
-                self.layers.append(LSTM_layer(layer, prev_size, size, self.learning_rate))
+                self.layers.append(LSTMLayer(layer, prev_size, size, self.learning_rate))
                 prev_size = size
 
         print(f"Layers of the network with dictionary of {self.dict_size} characters:")
@@ -426,7 +434,7 @@ class LSTM:
     def initialise_layers(self) -> None:
         # Initialise the parameters for each layer before an iteration
         for layer in self.layers:
-            layer.initialise_Layer()
+            layer.initialise_layer()
 
     def train(self):
         # Initialising the counters n the iteration p the sequence counter
@@ -461,15 +469,15 @@ class LSTM:
             for layerN, layer in enumerate(reversed(self.layers)):
                 if layerN == 0:
                     dy = layer.backpropagation_output_layer(iter_out)
-                    dh = layer.backpropagation_LSTM_layer(dy)
+                    dh = layer.backpropagation_lstm_layer(dy)
                 else:
-                    dh = layer.backpropagation_LSTM_layer(dh)
+                    dh = layer.backpropagation_lstm_layer(dh)
             if n % 1000 == 0:
                 for layer in self.layers:
                     layer.grad_check()
             # Update parameters
             for layer in self.layers:
-                layer.SGD()
+                layer.sgd()
             # Print out the sample and the details
             if n % 50 == 0:
                 print(self.details(n), "\n")
@@ -478,7 +486,8 @@ class LSTM:
                 plt.close()
 
             if n % 100 == 0:
-                print(f"Sample: \n[{self.sample(100)}]\n")
+                #print(f"Sample: \n[{self.sample(100)}]\n")
+                pass
 
             if n % 1000 == 0:
                 print(self.sample(1000))
@@ -497,7 +506,7 @@ class LSTM:
         cells = [np.zeros((i.hidden_size, 1)) for i in self.layers]
         for n in range(size):
             for i, layer in enumerate(self.layers):
-                x = layer.sample_LSTM(x, hiddens[i], cells[i])
+                x = layer.sample_lstm(x, hiddens[i], cells[i])
                 hiddens[i] = x[0]
                 cells[i] = x[1]
                 x = x[0]
