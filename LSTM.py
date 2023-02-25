@@ -179,7 +179,7 @@ class LSTMLayer:
             dh_dct = dout_dh * self.og[t] + dcnext
             dh_do = self.cs[t]
 
-            dct_dct_1 = dh_dct * self.fg[t]
+            dcnext = dh_dct * self.fg[t]
             dct_df = dh_dct * self.cs[t-1]
             dct_di = dh_dct * self.mg[t]
             dct_dm = dh_dct * self.ig[t]
@@ -272,22 +272,23 @@ class LSTMLayer:
 
             cs[t] = fg[t] * cs[t - 1] + ig[t] * mg[t]
             hs[t] = og[t] * cs[t]
-        return hs.pop(-1)
+        hs.pop(-1)
+        return hs
 
-    def output_check(self, wy, by):
+    def output_check(self, wy, by) -> dict[int, np.ndarray]:
         hid: dict[int, np.ndarray] = self.forward_pass().copy()
-        ys, hs, ps = {}, {}, {}
+        ys, ps = {}, {}
         hid.pop(-1)
         hs = hid
         for t, k in enumerate(hid):
-            ys[t] = wy @ self.hs[t] + by
+            ys[t] = wy @ hs[t] + by
             yt = ys[t] - np.max(ys[t])
             ps[t] = np.exp(yt) / np.sum(np.exp(yt))
         return ps
 
     def grad_check(self) -> float:
         # Function for calculating the hidden states to check the derivatives
-        def h(variable: str = "default", d=1e-20):
+        def h(variable: str = "default", d=1e-20) -> dict[int, np.ndarray]:
             match variable.lower():
                 case "wf":
                     return self.forward_check(wf=self.Wf + d, wi=self.Wi, wo=self.Wo, wm=self.Wm, bf=self.Bf,
@@ -319,12 +320,12 @@ class LSTMLayer:
 
         dx = 1e-7
         if self.output_size != 0:
-            for i, j, k in zip(self.output_check(self.Wy + dx, self.By), self.output_check(self.Wy, self.By + dx),
-                               self.output_check(self.Wy, self.By)):
+            for i, j, k in zip(self.output_check(self.Wy + dx, self.By).values(), self.output_check(self.Wy, self.By + dx).values(),
+                               self.output_check(self.Wy, self.By).values()):
                 self.cWy += (i - k) / dx
                 self.cBy += (j - k) / dx
 
-        for t, j in enumerate(h(d=dx)):
+        for t, j in h(d=dx).items():
             self.cWf += (h("wf", d=dx)[t] - j) / dx
             self.cWi += (h("wi", d=dx)[t] - j) / dx
             self.cWo += (h("wo", d=dx)[t] - j) / dx
@@ -486,8 +487,7 @@ class LSTM:
                 plt.close()
 
             if n % 100 == 0:
-                #print(f"Sample: \n[{self.sample(100)}]\n")
-                pass
+                print(f"Sample: \n[{self.sample(100)}]\n")
 
             if n % 1000 == 0:
                 print(self.sample(1000))
@@ -523,4 +523,4 @@ class LSTM:
         return txt
 
     def details(self, n):
-        print(f"n: {n}, loss: {self.loss[-1]}, timestep sample: [{self.sample(30)}]")
+        print(f"n: {n}, loss: {self.loss[-1]}, timestep sample: [{self.sample(10)}]")
